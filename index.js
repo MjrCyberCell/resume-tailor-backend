@@ -6,11 +6,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 👇 Use your Groq API key here (set in Render dashboard)
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-// Helper function to call Groq
+// Helper function to call Groq with JSON-enforced output
 async function callGroq(prompt) {
   const response = await fetch(GROQ_URL, {
     method: "POST",
@@ -19,8 +18,19 @@ async function callGroq(prompt) {
       "Authorization": `Bearer ${GROQ_API_KEY}`
     },
     body: JSON.stringify({
-      model: "llama3-70b-8192", // free model
-      messages: [{ role: "user", content: prompt }],
+      model: "llama3-70b-8192",
+      messages: [
+        {
+          role: "system",
+          content: `You are a resume analysis assistant. Always respond ONLY in valid JSON with this structure:
+{
+  "strengths": ["point1", "point2", ...],
+  "weaknesses": ["point1", "point2", ...],
+  "improvements": ["point1", "point2", ...]
+}`
+        },
+        { role: "user", content: prompt }
+      ],
       temperature: 0.7
     })
   });
@@ -31,7 +41,14 @@ async function callGroq(prompt) {
   }
 
   const data = await response.json();
-  return data.choices[0].message.content;
+
+  // Parse JSON safely
+  try {
+    return JSON.parse(data.choices[0].message.content);
+  } catch (e) {
+    console.error("❌ JSON parse error:", e.message);
+    throw new Error("Groq did not return valid JSON");
+  }
 }
 
 // 🔎 Analyze endpoint
@@ -39,7 +56,7 @@ app.post("/api/analyze", async (req, res) => {
   try {
     const { text } = req.body;
     const result = await callGroq(`Analyze this resume/job text:\n\n${text}`);
-    res.json({ result });
+    res.json(result);
   } catch (err) {
     console.error("❌ Error in /api/analyze:", err.message);
     res.status(500).json({ error: "Failed to analyze", details: err.message });
@@ -51,7 +68,7 @@ app.post("/api/suggest", async (req, res) => {
   try {
     const { resume } = req.body;
     const result = await callGroq(`Suggest improvements for this resume:\n\n${resume}`);
-    res.json({ result });
+    res.json(result);
   } catch (err) {
     console.error("❌ Error in /api/suggest:", err.message);
     res.status(500).json({ error: "Failed to suggest", details: err.message });
@@ -60,7 +77,7 @@ app.post("/api/suggest", async (req, res) => {
 
 // Health check
 app.get("/", (req, res) => {
-  res.send("✅ Resume Tailor backend (Groq) is running");
+  res.send("✅ Resume Tailor backend (Groq JSON mode) is running");
 });
 
 // Port
