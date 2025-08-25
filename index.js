@@ -1,87 +1,95 @@
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";
+import bodyParser from "body-parser";
+import "dotenv/config";
+import Groq from "groq-sdk";
 
 const app = express();
+const port = process.env.PORT || 5000;
+
+// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+// Groq client
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
-// Helper function to call Groq with JSON-enforced output
-async function callGroq(prompt) {
-  const response = await fetch(GROQ_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: "llama3-70b-8192",
-      messages: [
-        {
-          role: "system",
-          content: `You are a resume analysis assistant. Always respond ONLY in valid JSON with this structure:
-{
-  "strengths": ["point1", "point2", ...],
-  "weaknesses": ["point1", "point2", ...],
-  "improvements": ["point1", "point2", ...]
-}`
-        },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.7
-    })
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error?.message || "Groq API error");
-  }
-
-  const data = await response.json();
-
-  // Parse JSON safely
+// Utility: extract JSON safely
+function extractJSON(text) {
   try {
-    return JSON.parse(data.choices[0].message.content);
-  } catch (e) {
-    console.error("❌ JSON parse error:", e.message);
-    throw new Error("Groq did not return valid JSON");
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
 }
 
-// 🔎 Analyze endpoint
-app.post("/api/analyze", async (req, res) => {
-  try {
-    const { text } = req.body;
-    const result = await callGroq(`Analyze this resume/job text:\n\n${text}`);
-    res.json(result);
-  } catch (err) {
-    console.error("❌ Error in /api/analyze:", err.message);
-    res.status(500).json({ error: "Failed to analyze", details: err.message });
-  }
-});
-
-// 💡 Suggest improvements endpoint
-app.post("/api/suggest", async (req, res) => {
-  try {
-    const { resume } = req.body;
-    const result = await callGroq(`Suggest improvements for this resume:\n\n${resume}`);
-    res.json(result);
-  } catch (err) {
-    console.error("❌ Error in /api/suggest:", err.message);
-    res.status(500).json({ error: "Failed to suggest", details: err.message });
-  }
-});
-
-// Health check
+// Routes
 app.get("/", (req, res) => {
-  res.send("✅ Resume Tailor backend (Groq JSON mode) is running");
+  res.send("Resume Tailor Backend (Groq) is running 🚀");
 });
 
-// Port
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.post("/api/analyze", async (req, res) => {
+  const { resume, jobDescription } = req.body;
+
+  if (!resume || !jobDescription) {
+    return res
+      .status(400)
+      .json({ error: "Both resume and job description are required." });
+  }
+
+  try {
+    const prompt = `
+You are an expert career coach. Compare the resume and job description below and provide structured JSON.
+
+Resume:
+${resume}
+
+Job Description:
+${jobDescription}
+
+The JSON must include:
+{
+  "score": 0-100, // percentage match of resume to job
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "improvements": ["..."]
+}
+`;
+
+    const response = await groq.chat.completions.create({
+      model: "llama-3.1-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const raw = response.choices[0].message.content;
+    const analysis = extractJSON(raw);
+
+    if (!analysis) {
+      console.error("Groq returned unparseable response:", raw);
+      return res.status(500).json({
+        error: "Invalid JSON from Groq",
+        details: raw,
+      });
+    }
+
+    res.json(analysis);
+  } catch (err) {
+    console.error("Error during analysis:", err);
+    res.status(500).json({ error: "Analysis failed", details: err.message });
+  }
+});
+
+// Start server
+app.listen(port, () => {
+  console.log(`✅ Groq backend running on http://localhost:${port}`);
 });
