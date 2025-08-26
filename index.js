@@ -7,8 +7,28 @@ import Groq from "groq-sdk";
 const app = express();
 const port = process.env.PORT || 5000;
 
+// ✅ Replace with your actual Vercel frontend domain
+const allowedOrigins = [
+  "https://resume-tailor-frontend-gold.vercel.app", // <-- Your Vercel frontend
+];
+
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
 app.use(bodyParser.json());
 
 // Groq client
@@ -59,7 +79,7 @@ ${jobDescription}
 
 The JSON must include:
 {
-  "score": 0-100, // percentage match of resume to job
+  "score": 0-100,
   "strengths": ["..."],
   "weaknesses": ["..."],
   "improvements": ["..."]
@@ -91,5 +111,5 @@ The JSON must include:
 
 // Start server
 app.listen(port, () => {
-  console.log(`✅ Groq backend running on http://localhost:${port}`);
+  console.log(`✅ Groq backend running on port ${port}`);
 });
