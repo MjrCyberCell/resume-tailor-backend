@@ -69,7 +69,9 @@ app.post("/api/analyze", async (req, res) => {
 
   try {
     const prompt = `
-You are an expert career coach. Compare the resume and job description below and provide structured JSON.
+You are an expert career coach and resume writer.
+
+Compare the following resume against the job description and return a JSON object with detailed analysis.
 
 Resume:
 ${resume}
@@ -79,17 +81,22 @@ ${jobDescription}
 
 The JSON must include:
 {
-  "score": 0-100,
-  "strengths": ["..."],
-  "weaknesses": ["..."],
-  "improvements": ["..."]
+  "score": 0-100,                  // percentage match of resume to job
+  "strengths": ["..."],            // areas where resume aligns well
+  "weaknesses": ["..."],           // gaps or issues
+  "improvements": ["..."],         // general improvement suggestions
+  "missing_keywords": ["..."],     // important terms from JD not found in resume
+  "example_bullets": ["..."],      // 2-3 suggested resume bullet points tailored to JD
+  "improved_resume_snippet": "..." // a short rewritten section of the resume showing improvements
 }
+
+Make sure the JSON is valid and properly formatted.
 `;
 
     const response = await groq.chat.completions.create({
-  model: "llama-3.3-70b-versatile",  // ✅ updated model ID
-  messages: [{ role: "user", content: prompt }],
- });
+      model: "llama-3.3-70b-versatile", // ✅ updated model ID
+      messages: [{ role: "user", content: prompt }],
+    });
 
     const raw = response.choices[0].message.content;
     const analysis = extractJSON(raw);
